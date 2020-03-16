@@ -11,7 +11,7 @@ namespace proxy_asio {
     using namespace asio;
     using namespace asio::ip;
 
-    class Session : public std::enable_shared_from_this<Session> {
+    class Session {
         io_context::strand strand_;
         std::mutex close_mutex_;
         tcp::socket downstreamSocket_, upstreamSocket_;
@@ -35,7 +35,7 @@ namespace proxy_asio {
         void handleUpstreamConnect(const asio::error_code &err);
 
     public:
-        Session(tcp::socket &tcp_socket, Statistics &statistics);
+        Session(tcp::socket tcp_socket, Statistics &statistics);
 
         ~Session();
 

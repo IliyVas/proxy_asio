@@ -16,7 +16,7 @@ namespace proxy_asio {
         tcp::acceptor acceptor_;
         signal_set signals_;
         Statistics statistics_;
-        std::vector<std::shared_ptr<Session>> sessions_;
+        std::vector<std::unique_ptr<Session>> sessions_;
 
         void handleSignal(const asio::error_code &err, int sig);
 

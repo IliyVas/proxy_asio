@@ -4,20 +4,26 @@
 
 using namespace proxy_asio;
 
-Session::Session(tcp::socket &tcp_socket, Statistics &statistics) : strand_(tcp_socket.get_io_context()),
-                                                                    downstreamSocket_(std::move(tcp_socket)),
-                                                                    upstreamSocket_(downstreamSocket_.get_io_context()),
-                                                                    statistics_(statistics),
-                                                                    uBytesSent_(0), uBytesRead_(0),
-                                                                    dBytesSent_(0), dBytesRead_(0),
-                                                                    closed_(false) {}
+Session::Session(tcp::socket tcp_socket, Statistics &statistics) : strand_(tcp_socket.get_io_context()),
+                                                                   downstreamSocket_(std::move(tcp_socket)),
+                                                                   upstreamSocket_(downstreamSocket_.get_io_context()),
+                                                                   statistics_(statistics),
+                                                                   uBytesSent_(0), uBytesRead_(0),
+                                                                   dBytesSent_(0), dBytesRead_(0),
+                                                                   closed_(false) {}
 
 void Session::Start() {
-    auto upstream_ip = make_address_v4(downstreamSocket_.remote_endpoint().address().to_v4().to_uint() + 2);
+    asio::error_code err;
+    auto d_remote_endpoint = downstreamSocket_.remote_endpoint(err);
+    if (err) {
+        Close();
+        return;
+    }
+    auto upstream_ip = make_address_v4(d_remote_endpoint.address().to_v4().to_uint() + 2);
     upstreamSocket_.async_connect(tcp::endpoint(upstream_ip, downstreamSocket_.local_endpoint().port()),
-                                  bind_executor(strand_, std::bind(&Session::handleUpstreamConnect,
-                                                                   shared_from_this(),
-                                                                   std::placeholders::_1)));
+                                  bind_executor(strand_, [this](const asio::error_code &err) {
+                                      handleUpstreamConnect(err);
+                                  }));
 }
 
 void Session::handleDownstreamRead(const asio::error_code &err,
@@ -29,15 +35,15 @@ void Session::handleDownstreamRead(const asio::error_code &err,
     dBytesRead_ += bytes_transferred;
 
     upstreamSocket_.async_send(buffer(dBuffer_, bytes_transferred),
-                               bind_executor(strand_, std::bind(&Session::handleUpstreamSend,
-                                                                shared_from_this(),
-                                                                std::placeholders::_1,
-                                                                std::placeholders::_2)));
+                               bind_executor(strand_, [this](const asio::error_code &err, size_t bytes_transferred) {
+                                   handleUpstreamSend(err, bytes_transferred);
+                               }));
 
-    downstreamSocket_.async_read_some(buffer(dBuffer_), bind_executor(strand_, std::bind(&Session::handleDownstreamRead,
-                                                                                         shared_from_this(),
-                                                                                         std::placeholders::_1,
-                                                                                         std::placeholders::_2)));
+    downstreamSocket_.async_read_some(buffer(dBuffer_),
+                                      bind_executor(strand_,
+                                                    [this](const asio::error_code &err, size_t bytes_transferred) {
+                                                        handleDownstreamRead(err, bytes_transferred);
+                                                    }));
 }
 
 
@@ -63,14 +69,17 @@ void Session::handleUpstreamConnect(const asio::error_code &err) {
         return;
     }
 
-    downstreamSocket_.async_read_some(buffer(dBuffer_), bind_executor(strand_, std::bind(&Session::handleDownstreamRead,
-                                                                                         shared_from_this(),
-                                                                                         std::placeholders::_1,
-                                                                                         std::placeholders::_2)));
-    upstreamSocket_.async_read_some(buffer(uBuffer_), bind_executor(strand_, std::bind(&Session::handleUpstreamRead,
-                                                                                       shared_from_this(),
-                                                                                       std::placeholders::_1,
-                                                                                       std::placeholders::_2)));
+    downstreamSocket_.async_read_some(buffer(dBuffer_),
+                                      bind_executor(strand_,
+                                                    [this](const asio::error_code &err, size_t bytes_transferred) {
+                                                        handleDownstreamRead(err, bytes_transferred);
+                                                    }));
+
+    upstreamSocket_.async_read_some(buffer(uBuffer_),
+                                    bind_executor(strand_,
+                                                  [this](const asio::error_code &err, size_t bytes_transferred) {
+                                                      handleUpstreamRead(err, bytes_transferred);
+                                                  }));
 }
 
 void Session::handleUpstreamRead(const asio::error_code &err, size_t bytes_transferred) {
@@ -81,16 +90,16 @@ void Session::handleUpstreamRead(const asio::error_code &err, size_t bytes_trans
     uBytesRead_ += bytes_transferred;
 
     downstreamSocket_.async_send(buffer(uBuffer_, bytes_transferred),
-                                 bind_executor(strand_, std::bind(&Session::handleDownstreamSend,
-                                                                  shared_from_this(),
-                                                                  std::placeholders::_1,
-                                                                  std::placeholders::_2)));
+                                 bind_executor(strand_,
+                                               [this](const asio::error_code &err, size_t bytes_transferred) {
+                                                   handleDownstreamSend(err, bytes_transferred);
+                                               }));
 
     upstreamSocket_.async_read_some(buffer(uBuffer_),
-                                    bind_executor(strand_, std::bind(&Session::handleUpstreamRead,
-                                                                     shared_from_this(),
-                                                                     std::placeholders::_1,
-                                                                     std::placeholders::_2)));
+                                    bind_executor(strand_,
+                                                  [this](const asio::error_code &err, size_t bytes_transferred) {
+                                                      handleUpstreamRead(err, bytes_transferred);
+                                                  }));
 }
 
 void Session::Close() {

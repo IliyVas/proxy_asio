@@ -12,10 +12,9 @@ Server::Server(const std::string &ip, unsigned short port) :
 }
 
 void Server::Run() {
-    acceptor_.async_accept(bind_executor(strand_, std::bind(&Server::handleAccept,
-                                                            this,
-                                                            std::placeholders::_1,
-                                                            std::placeholders::_2)));
+    acceptor_.async_accept(bind_executor(strand_, [this](const asio::error_code &err, tcp::socket new_socket) {
+        handleAccept(err, std::move(new_socket));
+    }));
 
     ThreadPool thread_pool(2);
     for (unsigned i = 0; i < thread_pool.GetWorkersNum(); i++) {
@@ -23,10 +22,9 @@ void Server::Run() {
     }
 
     signals_.add(SIGINT);
-    signals_.async_wait(bind_executor(strand_, std::bind(&Server::handleSignal,
-                                                         this,
-                                                         std::placeholders::_1,
-                                                         std::placeholders::_2)));
+    signals_.async_wait(bind_executor(strand_, [this](const asio::error_code &err, int sig) {
+        handleSignal(err, sig);
+    }));
 
     std::cout << "Server started" << std::endl;
     io_.run();
@@ -44,14 +42,16 @@ void Server::handleAccept(const asio::error_code &err, tcp::socket socket) {
     }
     std::cout << remote_endpoint.address().to_string() << ':' << remote_endpoint.port() << " connected" << std::endl;
 
-    auto session = std::make_shared<Session>(socket, statistics_);
-    sessions_.push_back(session);
+    auto session = std::make_unique<Session>(std::move(socket), statistics_);
     session->Start();
-    acceptor_.async_accept(std::bind(&Server::handleAccept, this, std::placeholders::_1, std::placeholders::_2));
+    sessions_.push_back(std::move(session));
+    acceptor_.async_accept(bind_executor(strand_, [this](const asio::error_code &err, tcp::socket new_socket) {
+        handleAccept(err, std::move(new_socket));
+    }));
 }
 
 void Server::handleSignal(const asio::error_code &err, int sig) {
-    if (sig != SIGINT) return;
+    if (sig != SIGINT || err) return;
 
     if (acceptor_.is_open()) {
         acceptor_.close();

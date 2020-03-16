@@ -4,7 +4,7 @@ OBJDIR=obj
 SRCDIR=src
 MKDIRS=$(BINDIR) $(OBJDIR)
 IDIR =lib/asio/include
-CXXFLAGS=-c -Wall -I$(IDIR) -DASIO_STANDALONE -g -O0
+CXXFLAGS=-c -Wall -I$(IDIR) -DASIO_STANDALONE -O3
 LDFLAGS=-pthread
 
 SRC_FILES := $(wildcard $(SRCDIR)/*.cpp)
